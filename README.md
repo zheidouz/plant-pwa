@@ -198,3 +198,42 @@ npm run test:watch # vitest watch
 ```
 
 Coverage: each dying clause (a/b/c) independently with a fixed clock, combined clauses, non-dying cases, `computeNextDue` (no completion → `createdAt`; one completion; multiple → most recent; disabled rule → `null`); storage round-trip, corruption fallback, schema-mismatch fallback, disabled-rule persistence.
+
+## Testing
+
+The e2e suite lives in `e2e/` and drives the production build via
+`vite preview`. Pl@ntNet and MiMo calls are intercepted with
+`page.route` mocks (see `e2e/helpers/mocks.ts`) so the suite is
+deterministic and has no external quota dependency.
+
+```bash
+# One-time browser install (~150 MB):
+npx playwright install chromium
+
+# Run all 4 scenarios headless:
+npm run test:e2e
+
+# Run with a headed browser for debugging:
+npm run test:e2e:headed
+
+# Regenerate the JPEG fixtures under e2e/fixtures/:
+npm run fixtures
+```
+
+Scenarios (issue #10 acceptance):
+
+1. `e2e/scan-and-add.spec.ts` — FAB → upload fixture JPEG → identify
+   result modal → "Add to My Plants" → plant appears on Today + the
+   MyPlantsPill count increments.
+2. `e2e/mark-done-clears-banner.spec.ts` — seeds a dying plant, asserts
+   the DyingBanner renders, marks water done on the detail page, and
+   asserts the banner disappears on Today.
+3. `e2e/ics-export.spec.ts` — exports the .ics file from a seeded
+   collection, asserts the filename and that the body contains the
+   expected VEVENTs (`SUMMARY:💧 Water`, `RRULE:FREQ=DAILY;INTERVAL=7`).
+4. `e2e/offline-shell.spec.ts` — flips `context.setOffline(true)` and
+   asserts the app's `<NoNetwork />` empty state renders; restoring
+   online reloads Today.
+
+Helpers: `e2e/helpers/seed.ts` (seeds `localStorage`), `e2e/helpers/mocks.ts`
+(mocks `/identifyPlant` + `/generateSchedule`).
