@@ -78,3 +78,60 @@ public/
 The build is broken into 9 vertical slices — see [`docs/issues/`](./docs/issues/index.md) for the dependency-ordered list (also published as issues #2–#10 on the [GitHub tracker](https://github.com/zheidouz/plant-pwa/issues)).
 
 Implement one slice per fresh `/implement` session, starting with whichever slice follows the one just merged (#3 Domain model).
+
+## Domain model
+
+Issue #3 (Domain model + localStorage + dying detection) ships a pure-TypeScript domain module under `src/domain/`. It is the data contract for every later slice — no React, no Firebase, no LLM SDK imports.
+
+### Public surface
+
+```ts
+import {
+  // types
+  type AppState,
+  type CareType,
+  type CompletionEntry,
+  type Plant,
+  type ScheduleRule,
+  // constants
+  ALL_CARE_TYPES,
+  CURRENT_SCHEMA_VERSION,        // = 1
+  STORAGE_KEY,                   // = "plant-pwa:app-state:v1"
+  // persistence
+  emptyAppState,
+  loadAppState,                  // versioned-key read, corruption + schema-mismatch safe
+  saveAppState,                  // safe write, no throw on QuotaExceeded
+  // schedule + dying math
+  DYING_WATER_DAYS,              // = 7
+  DYING_FERTILIZE_DAYS,          // = 14
+  DYING_NEVER_WATERED_DAYS,      // = 14
+  computeNextDue,                // (plant, careType, now) -> ISO | null
+  daysSince,
+  findRule,
+  isDying,                       // (plant, now) -> boolean, matches PRD contract
+  latestCompletion,
+} from "../domain";
+```
+
+### Dying-detection contract
+
+`isDying(plant, now)` returns `true` when any of:
+
+- **(a)** `now - last water completion > 7 days` AND water rule is enabled
+- **(b)** `now - last fertilize completion > 14 days` AND fertilize rule is enabled
+- **(c)** water rule is enabled AND no water completion exists AND `now - plant.createdAt > 14 days`
+
+Thresholds live as named constants at the top of `src/domain/schedule.ts` so a future tuning pass is one line.
+
+### Persistence
+
+`loadAppState` / `saveAppState` wrap `localStorage` under the versioned key `plant-pwa:app-state:v1`. Reads never throw: missing key, malformed JSON, shape mismatch, and `schemaVersion` mismatch all return the empty state (`{ schemaVersion: 1, plants: [] }`) with a single `console.warn`. Writes catch `QuotaExceededError` / security errors and degrade silently.
+
+### Tests
+
+```bash
+npm test           # vitest run (jsdom env)
+npm run test:watch # vitest watch
+```
+
+Coverage: each dying clause (a/b/c) independently with a fixed clock, combined clauses, non-dying cases, `computeNextDue` (no completion → `createdAt`; one completion; multiple → most recent; disabled rule → `null`); storage round-trip, corruption fallback, schema-mismatch fallback, disabled-rule persistence.
