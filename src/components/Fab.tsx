@@ -1,14 +1,17 @@
-// Floating action button — placeholder. v1 slice deliberately has no onClick;
-// later slices (issue #4 / #5) will wire this to the camera capture flow.
-export default function Fab() {
+// Floating action button. Slice #4 wires it to the camera-capture flow via
+// the `onClick` prop supplied by `Layout`. Before this slice it was an inert
+// placeholder; we keep the same markup so Layout consumers don't need to
+// change their imports.
+export interface FabProps {
+  onClick?: () => void;
+}
+
+export default function Fab({ onClick }: FabProps) {
   return (
     <button
       type="button"
       aria-label="Add a plant"
-      // Render inert — at this slice the FAB has no functionality. Keeping the
-      // element in the DOM preserves the visual layout and the click target,
-      // so we can attach a handler in a later issue without disturbing callers.
-      onClick={(e) => e.preventDefault()}
+      onClick={onClick}
       className="pointer-events-auto fixed bottom-6 right-6 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-leaf-600 text-2xl text-white shadow-lg shadow-leaf-600/30 transition-transform active:scale-95"
       data-testid="fab"
     >
