@@ -16,7 +16,7 @@ import NoNetwork from "../components/NoNetwork";
 import OrganSelector from "../components/OrganSelector";
 import IdentifyResultModal from "../components/IdentifyResultModal";
 import UndoSnackbar from "../components/UndoSnackbar";
-import { identifyPlant, IdentifyError } from "../lib/api";
+import { identifyPlant, IdentifyError, generateSchedule } from "../lib/api";
 import { blobToDataUrl } from "../components/CaptureModal";
 import {
   type IdentifyResult,
@@ -32,7 +32,7 @@ interface CapturedShot {
 }
 
 export default function Today() {
-  const { addPlant, removePlant } = useAppState();
+  const { addPlant, removePlant, updatePlant } = useAppState();
   const [online, setOnline] = useState<boolean>(() =>
     typeof navigator === "undefined" ? true : navigator.onLine,
   );
@@ -126,7 +126,26 @@ export default function Today() {
     setShot(null);
     setOrgan(null);
     setResult(null);
-  }, [result, shot, addPlant]);
+
+    // Fire-and-forget schedule generation. The detail page will pick
+    // this up either via the rules update we persist here or via its own
+    // on-mount fetch. Errors are swallowed — the detail page falls back
+    // to a generic tip.
+    void (async () => {
+      try {
+        const r = await generateSchedule({
+          scientificName: top.scientificName,
+          commonName: top.commonName,
+          locale: plant.locale,
+          createdAt: plant.createdAt,
+        });
+        updatePlant(plant.id, { rules: r.rules, careTip: r.careTip });
+      } catch {
+        // Surface nothing — the user lands on the detail page and the
+        // page itself will retry.
+      }
+    })();
+  }, [result, shot, addPlant, updatePlant]);
 
   const handleRetry = useCallback(() => {
     setStage("organ");
