@@ -1,0 +1,4 @@
+# Allow all crawlers by default. The PWA shell is public; later slices
+# (Firebase Functions endpoints) can tighten this if needed.
+User-agent: *
+Allow: /
