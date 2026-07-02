@@ -1,0 +1,3 @@
+# Keep this directory in git. Real fixture JPEGs are committed alongside
+# this file (`pothos-small.jpg`, `cactus-small.jpg`) and used by
+# `e2e/scan-and-add.spec.ts` for the file-upload path.
