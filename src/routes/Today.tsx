@@ -41,6 +41,7 @@ import {
   type CareType,
   type Plant,
 } from "../domain";
+import { requestNotificationPermission } from "../lib/push";
 
 interface CapturedShot {
   image: HTMLImageElement;
@@ -146,6 +147,14 @@ export default function Today() {
     setShot(null);
     setOrgan(null);
     setResult(null);
+
+    // Slice #8: prompt for notification permission on first plant add.
+    // `requestNotificationPermission` is a no-op when permission is
+    // already granted/denied OR when we've asked this session — so this
+    // is safe to fire on every successful add.
+    void requestNotificationPermission().catch(() => {
+      // Permission flows can throw in private-browsing modes — swallow.
+    });
 
     // Fire-and-forget schedule generation. Errors are swallowed — the
     // detail page will retry on mount.
