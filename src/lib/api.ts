@@ -16,6 +16,10 @@ import type {
   IdentifyResult,
   Organ,
 } from "./identifyTypes";
+import type {
+  ScheduleGenerateRequest,
+  ScheduleGenerateResponse,
+} from "./scheduleTypes";
 
 const FUNCTIONS_URL =
   (import.meta.env.VITE_FIREBASE_FUNCTIONS_URL as string | undefined) ?? "/api";
@@ -100,5 +104,84 @@ function friendlyMessageForStatus(status: number): string | null {
   if (status === 502) return "Identification service is temporarily unavailable. Try again.";
   if (status === 500) return "Identification failed on our side. Please try again.";
   if (status === 400) return "The image or organ was rejected by the service.";
+  return null;
+}
+
+/**
+ * Identifier-style error thrown by `generateSchedule()`. Re-uses the
+ * same shape as {@link IdentifyError} for UI parity.
+ */
+export class ScheduleError extends Error {
+  readonly status?: number;
+  readonly code?: string;
+  constructor(message: string, opts: { status?: number; code?: string } = {}) {
+    super(message);
+    this.name = "ScheduleError";
+    this.status = opts.status;
+    this.code = opts.code;
+  }
+}
+
+/**
+ * Call the Firebase Function `generateSchedule`. Returns the parsed
+ * {@link ScheduleGenerateResponse} on success. Throws
+ * {@link ScheduleError} on any non-2xx response or network failure.
+ */
+export async function generateSchedule(
+  req: ScheduleGenerateRequest,
+): Promise<ScheduleGenerateResponse> {
+  const url = `${FUNCTIONS_URL.replace(/\/$/, "")}/generateSchedule`;
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    });
+  } catch {
+    throw new ScheduleError(
+      "Could not reach the schedule service. Check your connection and try again.",
+      { code: "network" },
+    );
+  }
+
+  if (!res.ok) {
+    let payload: { error?: string; message?: string } = {};
+    try {
+      payload = (await res.json()) as { error?: string; message?: string };
+    } catch {
+      // Body wasn't JSON — fall back to status-based copy below.
+    }
+    const message =
+      payload.message ??
+      friendlyScheduleMessageForStatus(res.status) ??
+      "Schedule generation failed. Please try again.";
+    throw new ScheduleError(message, { status: res.status, code: payload.error });
+  }
+
+  let data: ScheduleGenerateResponse;
+  try {
+    data = (await res.json()) as ScheduleGenerateResponse;
+  } catch {
+    throw new ScheduleError("Unexpected response from the schedule service.", {
+      code: "parse",
+    });
+  }
+
+  if (!data || !Array.isArray(data.rules) || typeof data.careTip !== "string") {
+    throw new ScheduleError("Schedule service returned an invalid response.", {
+      code: "schema",
+    });
+  }
+
+  return data;
+}
+
+function friendlyScheduleMessageForStatus(status: number): string | null {
+  if (status === 429) return "Schedule service is rate-limited. Please try again later.";
+  if (status === 502) return "Schedule service is temporarily unavailable. Try again.";
+  if (status === 500) return "Schedule generation failed on our side. Please try again.";
+  if (status === 400) return "Schedule request was rejected by the service.";
   return null;
 }

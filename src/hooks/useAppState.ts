@@ -9,6 +9,7 @@
  *   - setState:     merge / replace (the underlying setState)
  *   - addPlant:     append a single plant
  *   - removePlant:  remove a plant by id (used by Undo + swipe-to-delete)
+ *   - updatePlant:  shallow-merge `partial` into the plant with `id`
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -25,6 +26,7 @@ export interface UseAppStateApi {
   setState: React.Dispatch<React.SetStateAction<AppState>>;
   addPlant: (plant: Plant) => void;
   removePlant: (id: string) => void;
+  updatePlant: (id: string, partial: Partial<Plant>) => void;
 }
 
 export function useAppState(): UseAppStateApi {
@@ -48,5 +50,12 @@ export function useAppState(): UseAppStateApi {
     setState((s) => ({ ...s, plants: s.plants.filter((p) => p.id !== id) }));
   }, []);
 
-  return { state, setState, addPlant, removePlant };
+  const updatePlant = useCallback((id: string, partial: Partial<Plant>) => {
+    setState((s) => ({
+      ...s,
+      plants: s.plants.map((p) => (p.id === id ? { ...p, ...partial } : p)),
+    }));
+  }, []);
+
+  return { state, setState, addPlant, removePlant, updatePlant };
 }
