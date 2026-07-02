@@ -68,6 +68,12 @@ export interface Plant {
 export interface AppState {
   schemaVersion: 1;
   plants: Plant[];
+  /**
+   * Daily digest preferences (slice #8). Optional so older localStorage
+   * payloads without the field continue to load cleanly — the Settings
+   * page falls back to `DEFAULT_NOTIFICATION_PREFS`.
+   */
+  notificationPrefs?: NotificationPrefs;
 }
 
 /**
@@ -89,3 +95,29 @@ export const ALL_CARE_TYPES: readonly CareType[] = [
   "fertilize",
   "mist",
 ] as const;
+
+/* ────────────────────  Slice #8 — daily digest prefs  ─────────────────── */
+
+/**
+ * Daily morning push-notification preferences (slice #8). The Settings UI
+ * owns these values; `useAppState` reads/writes them via
+ * `loadAppState`/`saveAppState` so they're versioned + corruption-safe
+ * alongside the plant collection.
+ *
+ * Defaults: enabled=false, hour=8, minute=0 — the function-time default
+ * is also 08:00 local (see `sendDailyDigest`).
+ */
+export interface NotificationPrefs {
+  enabled: boolean;
+  /** 0..23 — local hour. */
+  hour: number;
+  /** 0..59 — local minute. */
+  minute: number;
+}
+
+/** Defaults for `NotificationPrefs`. */
+export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
+  enabled: false,
+  hour: 8,
+  minute: 0,
+};

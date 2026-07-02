@@ -10,3 +10,4 @@
 
 export { identifyPlant } from "./identifyPlant";
 export { generateSchedule } from "./generateSchedule";
+export { sendDailyDigest } from "./sendDailyDigest";

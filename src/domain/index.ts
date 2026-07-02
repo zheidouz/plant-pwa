@@ -11,6 +11,7 @@ export type {
   AppState,
   CareType,
   CompletionEntry,
+  NotificationPrefs,
   Plant,
   ScheduleRule,
 } from "./types";
@@ -18,6 +19,7 @@ export type {
 export {
   ALL_CARE_TYPES,
   CURRENT_SCHEMA_VERSION,
+  DEFAULT_NOTIFICATION_PREFS,
   STORAGE_KEY,
 } from "./types";
 
