@@ -82,9 +82,10 @@ Implement one slice per fresh `/implement` session, starting with whichever slic
 ## Firebase setup (slice #4)
 
 Slice #4 wires the Firebase Functions v2 proxy (`identifyPlant`) plus
-Firebase Hosting. The Firebase project is `ai-ni-paul`; the project ID lives
-in `.firebaserc` so anyone in the repo can deploy without re-running
-`firebase use --add`.
+Firebase Hosting. The Firebase project is `plant-pwa-prod`; the project ID lives
+in `.firebaserc` so anyone in the repo can deploy without re-running:
+`firebase use --add`. Node runtime: **22** (Node 20 was deprecated
+2026-04-30 and will be decommissioned 2026-10-30).
 
 ### One-time secret setup
 
