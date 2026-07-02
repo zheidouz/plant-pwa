@@ -1,14 +1,16 @@
-// Settings — slice #8 daily digest + #9 app stats.
+// Settings — slice #8 daily digest + #9 app stats + Reset app.
 //
 // Sections:
 //   1. Notifications — toggle, time picker, permission controls, test
-//      notification button (slice #8).
-//   2. App stats — plants count + care-actions-this-month + Reset app
-//      stub (issue #9 will own the destructive action + monthly counter).
+//      notification button (slice #8). Unchanged by #9.
+//   2. App stats — plants count + care-actions-this-month (issue #9).
+//   3. Reset app — destructive button with confirmation dialog (issue #9).
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_NOTIFICATION_PREFS,
+  emptyAppState,
+  saveAppState,
   type NotificationPrefs,
 } from "../domain";
 import { useAppState } from "../hooks/useAppState";
@@ -39,27 +41,56 @@ function readPrefs(state: { notificationPrefs?: NotificationPrefs }): Notificati
   return DEFAULT_NOTIFICATION_PREFS;
 }
 
+/** Count `CompletionEntry`s completed in the current calendar month. */
+function careActionsThisMonth(state: { plants: { completionLog: { completedAt: string }[] }[] }, now: Date): number {
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  let count = 0;
+  for (const plant of state.plants) {
+    for (const entry of plant.completionLog) {
+      const t = new Date(entry.completedAt).getTime();
+      if (Number.isFinite(t) && t >= startOfMonth) count += 1;
+    }
+  }
+  return count;
+}
+
 export default function Settings() {
   const { state, setState } = useAppState();
   const prefs = useMemo(() => readPrefs(state), [state]);
 
-  // The permission state lives in the browser, not in our state, so we
-  // re-read it on every render. The "Enable notifications" button does a
-  // hard `requestPermission()` which is the only way to flip a "default"
-  // state to "granted".
   const [permission, setPermission] = useState<NotificationPermission>(
     () => getNotificationPermission(),
   );
 
-  // Track whether we've already prompted in this session. We avoid
-  // re-prompting on every render — once the user has seen the browser
-  // dialog we leave the choice alone.
   const [askedThisSession, setAskedThisSession] = useState<boolean>(
     () => hasAskedThisSession(),
   );
 
-  // Test-notification feedback (transient).
   const [testMsg, setTestMsg] = useState<string | null>(null);
+
+  // "now" for the monthly counter — a render-time snapshot is good enough.
+  const now = useMemo(() => new Date(), []);
+  const careCount = useMemo(
+    () => careActionsThisMonth(state, now),
+    [state, now],
+  );
+
+  // Reset-app confirmation dialog.
+  const resetDialogRef = useRef<HTMLDialogElement | null>(null);
+  const openResetDialog = useCallback(() => {
+    resetDialogRef.current?.showModal();
+  }, []);
+  const closeResetDialog = useCallback(() => {
+    resetDialogRef.current?.close();
+  }, []);
+  const handleResetConfirm = useCallback(() => {
+    // Persist an empty state, then reload. A full reload guarantees every
+    // mounted component re-reads the cleared localStorage on next mount.
+    saveAppState(emptyAppState());
+    if (typeof window !== "undefined") {
+      window.location.reload();
+    }
+  }, []);
 
   const updatePrefs = useCallback(
     (patch: Partial<NotificationPrefs>) => {
@@ -88,13 +119,11 @@ export default function Settings() {
     setPermission(result);
     setAskedThisSession(true);
     if (result === "granted" && !prefs.enabled) {
-      // Auto-enable the toggle when the user grants permission.
       updatePrefs({ enabled: true });
     }
   }, [prefs.enabled, updatePrefs]);
 
   const handleTestNotification = useCallback(async () => {
-    // Ensure permission first; this also covers the "default" path.
     let perm = getNotificationPermission();
     if (perm === "default" && !askedThisSession) {
       perm = await requestNotificationPermission();
@@ -109,10 +138,6 @@ export default function Settings() {
       );
       return;
     }
-    // Local-only "test" — uses the same body shape as the real digest,
-    // with a stand-in count so the user can see what the production push
-    // looks like. We don't read plant state here — that's the server's
-    // job (see `sendDailyDigest`).
     const sampleCount = Math.max(1, state.plants.length);
     const body = digestBody(sampleCount);
     const fired = sendLocalNotification("Plant care", body, {
@@ -125,6 +150,18 @@ export default function Settings() {
         : "Could not fire notification (permission changed).",
     );
   }, [askedThisSession, state.plants.length]);
+
+  // Close the dialog when Escape is pressed — the native <dialog> handles
+  // this for us, but we listen to make sure local state stays consistent.
+  useEffect(() => {
+    const node = resetDialogRef.current;
+    if (!node) return;
+    const onClose = () => {
+      /* no-op; dialog is closed */
+    };
+    node.addEventListener("close", onClose);
+    return () => node.removeEventListener("close", onClose);
+  }, []);
 
   return (
     <section className="mx-auto max-w-screen-sm px-4 py-8">
@@ -219,30 +256,69 @@ export default function Settings() {
         ) : null}
       </div>
 
-      {/* ── App stats (issue #9 stub) ──────────────────────────────── */}
+      {/* ── App stats (issue #9) ──────────────────────────────────── */}
       <h3 className="mt-10 text-sm font-semibold uppercase tracking-wide text-stone-500">
         App stats
       </h3>
       <div className="mt-3 space-y-3">
-        <StatRow label="Plants" value={String(state.plants.length)} />
+        <StatRow
+          label="Plants"
+          value={String(state.plants.length)}
+          testId="stat-plants"
+        />
         <StatRow
           label="Care actions this month"
-          value={String(
-            state.plants.reduce((sum, p) => sum + p.completionLog.length, 0),
-          )}
-          hint="Detailed monthly breakdown arrives in the next update."
+          value={String(careCount)}
+          testId="stat-care-this-month"
         />
 
         <button
           type="button"
-          disabled
-          className="w-full cursor-not-allowed rounded-lg border border-stone-200 bg-white px-4 py-3 text-left text-sm font-medium text-stone-400"
-          title="Reset app arrives in the next update."
-          data-testid="reset-app-stub"
+          onClick={openResetDialog}
+          className="w-full rounded-lg border border-red-200 bg-white px-4 py-3 text-left text-sm font-medium text-red-700 transition hover:border-red-400 hover:bg-red-50"
+          data-testid="reset-app"
         >
-          Reset app <span className="ml-2 text-xs">(coming soon)</span>
+          Reset app
         </button>
+        <p className="px-1 text-xs text-stone-500">
+          Clears every plant and the entire care history. This cannot be undone.
+        </p>
       </div>
+
+      {/* ── Reset-app confirmation dialog (HTML5 <dialog>) ─────────── */}
+      <dialog
+        ref={resetDialogRef}
+        className="rounded-2xl border border-stone-200 bg-white p-0 shadow-xl backdrop:bg-black/40"
+        data-testid="reset-confirm-dialog"
+      >
+        <div className="p-5">
+          <h4 className="text-base font-semibold text-stone-900">
+            Reset app?
+          </h4>
+          <p className="mt-2 text-sm text-stone-700">
+            This will delete all your plants and care history. This cannot be
+            undone.
+          </p>
+        </div>
+        <div className="flex justify-end gap-2 border-t border-stone-200 bg-stone-50 px-5 py-3">
+          <button
+            type="button"
+            onClick={closeResetDialog}
+            className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm font-medium text-stone-700 hover:bg-stone-100"
+            data-testid="reset-cancel"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleResetConfirm}
+            className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700"
+            data-testid="reset-confirm"
+          >
+            Reset
+          </button>
+        </div>
+      </dialog>
     </section>
   );
 }
@@ -251,13 +327,18 @@ function StatRow({
   label,
   value,
   hint,
+  testId,
 }: {
   label: string;
   value: string;
   hint?: string;
+  testId?: string;
 }) {
   return (
-    <div className="flex items-center justify-between rounded-xl border border-stone-200 bg-white px-4 py-3">
+    <div
+      className="flex items-center justify-between rounded-xl border border-stone-200 bg-white px-4 py-3"
+      data-testid={testId}
+    >
       <span className="text-sm font-medium text-stone-800">{label}</span>
       <div className="text-right">
         <span className="text-sm font-semibold text-stone-900">{value}</span>
