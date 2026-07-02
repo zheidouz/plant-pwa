@@ -28,6 +28,7 @@ import TodaySection from "../components/TodaySection";
 import UpcomingSection from "../components/UpcomingSection";
 import EmptyState from "../components/EmptyState";
 import MyPlantsPill from "../components/MyPlantsPill";
+import ExportIcsButton from "../components/ExportIcsButton";
 import { identifyPlant, IdentifyError, generateSchedule } from "../lib/api";
 import { blobToDataUrl } from "../components/CaptureModal";
 import {
@@ -301,6 +302,12 @@ export default function Today() {
                 now={now}
                 onOpenPlant={openPlant}
               />
+              {/* 3. ICS export — share the care plan with a partner or
+                  import into Apple/Google Calendar. Hidden when there
+                  are no plants (nothing to export). */}
+              <div className="flex justify-center pt-2">
+                <ExportIcsButton appState={state} />
+              </div>
             </>
           )}
         </div>
