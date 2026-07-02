@@ -1,21 +1,33 @@
 // Today route — home screen.
 //
-// Slice #4 acceptance criteria:
-//   - Camera FAB opens the capture UI (owned by `Layout`, dispatched here)
-//   - Successful ID auto-adds to "My Plants" via the domain layer
-//   - 5-second Undo snackbar with re-add on tap
-//   - Offline: capture path shows the existing NoNetwork state
-//   - Pl@ntNet rate-limit / 500 handled gracefully with a user message
+// Slice #6 acceptance criteria (issue #6 — Today screen with dying banner):
+//   - Three sections, in order: Dying → Today → Upcoming
+//   - Dying banner auto-renders when ANY plant matches the `isDying`
+//     contract; auto-disappears on next render when the overdue care is
+//     marked done on the detail page (no manual dismiss).
+//   - Today section groups by care type, overdue items pulled to the top
+//     with a clear visual indicator.
+//   - Upcoming shows the next 3 days, collapsed by default with a chevron.
+//   - FAB lives in `Layout` and dispatches `plant-pwa:open-capture` /
+//     `plant-pwa:capture` custom events here.
+//   - Empty state when there are zero plants; MyPlantsPill is always shown
+//     as a UX anchor (issue #9 will own the /#/my-plants screen).
 //
-// We listen to the FAB's "open-capture" / "capture" custom events because the
-// FAB lives in `Layout` (so it's available on every route) and the identify
-// pipeline is keyed off the Today screen.
+// We preserve the slice #4 5-state identify machine (idle → organ →
+// identifying → result → error), the identify-result modal, the
+// NoNetwork guard, and the auto-add + Undo-snackbar flow on success.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import NoNetwork from "../components/NoNetwork";
 import OrganSelector from "../components/OrganSelector";
 import IdentifyResultModal from "../components/IdentifyResultModal";
 import UndoSnackbar from "../components/UndoSnackbar";
+import DyingBanner from "../components/DyingBanner";
+import TodaySection from "../components/TodaySection";
+import UpcomingSection from "../components/UpcomingSection";
+import EmptyState from "../components/EmptyState";
+import MyPlantsPill from "../components/MyPlantsPill";
 import { identifyPlant, IdentifyError, generateSchedule } from "../lib/api";
 import { blobToDataUrl } from "../components/CaptureModal";
 import {
@@ -23,7 +35,11 @@ import {
   type Organ,
 } from "../lib/identifyTypes";
 import { useAppState } from "../hooks/useAppState";
-import type { Plant } from "../domain";
+import {
+  isDying,
+  type CareType,
+  type Plant,
+} from "../domain";
 
 interface CapturedShot {
   image: HTMLImageElement;
@@ -32,7 +48,10 @@ interface CapturedShot {
 }
 
 export default function Today() {
-  const { addPlant, removePlant, updatePlant } = useAppState();
+  const navigate = useNavigate();
+  const { state, addPlant, removePlant, updatePlant } = useAppState();
+  const plants = state.plants;
+
   const [online, setOnline] = useState<boolean>(() =>
     typeof navigator === "undefined" ? true : navigator.onLine,
   );
@@ -45,7 +64,11 @@ export default function Today() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [addedPlantId, setAddedPlantId] = useState<string | null>(null);
 
-  // Online detection — same shape as the previous slice, kept verbatim.
+  // `now` is captured once per render. Section reads (Dying / Today /
+  // Upcoming) all use the same clock so a render is internally consistent.
+  const now = useMemo(() => new Date(), []);
+
+  // Online detection — unchanged from the previous slice.
   useEffect(() => {
     const goOnline = () => setOnline(true);
     const goOffline = () => setOnline(false);
@@ -60,8 +83,6 @@ export default function Today() {
   // Listen for the Layout-owned FAB / capture events.
   useEffect(() => {
     function onOpen() {
-      // The user tapped the FAB while offline — surface the same offline
-      // message the rest of the screen shows.
       if (!navigator.onLine) return;
       setStage("idle");
     }
@@ -115,8 +136,6 @@ export default function Today() {
           ? navigator.language
           : "en-US",
       createdAt: new Date().toISOString(),
-      // Schedule rules are filled in by issue #5 (generateSchedule).
-      // For the "no schedule yet" render path, we leave an empty array.
       rules: [],
       completionLog: [],
     };
@@ -127,10 +146,8 @@ export default function Today() {
     setOrgan(null);
     setResult(null);
 
-    // Fire-and-forget schedule generation. The detail page will pick
-    // this up either via the rules update we persist here or via its own
-    // on-mount fetch. Errors are swallowed — the detail page falls back
-    // to a generic tip.
+    // Fire-and-forget schedule generation. Errors are swallowed — the
+    // detail page will retry on mount.
     void (async () => {
       try {
         const r = await generateSchedule({
@@ -141,8 +158,8 @@ export default function Today() {
         });
         updatePlant(plant.id, { rules: r.rules, careTip: r.careTip });
       } catch {
-        // Surface nothing — the user lands on the detail page and the
-        // page itself will retry.
+        // Silent — the user lands on the detail page and the page itself
+        // will retry.
       }
     })();
   }, [result, shot, addPlant, updatePlant]);
@@ -161,16 +178,51 @@ export default function Today() {
     setAddedPlantId(null);
   }, []);
 
+  // ── Home-screen wiring (issue #6) ────────────────────────────────────
+
+  /** Dying plants — recomputed every render. Cheap predicate on a few items. */
+  const dying = useMemo(() => plants.filter((p) => isDying(p, now)), [plants, now]);
+
+  /** Open the plant detail page. */
+  const openPlant = useCallback(
+    (plantId: string) => {
+      navigate(`/#/plant/${plantId}`);
+    },
+    [navigate],
+  );
+
+  /**
+   * Mark a care action as done from the Today row. Appends to the
+   * completion log; next render of the section will re-evaluate
+   * `isDying` and `computeNextDue`, causing the plant to drop out of
+   * Today / Dying automatically.
+   */
+  const markDone = useCallback(
+    (plantId: string, careType: CareType) => {
+      const target = plants.find((p) => p.id === plantId);
+      if (!target) return;
+      const entry = { careType, completedAt: new Date().toISOString() };
+      updatePlant(plantId, {
+        completionLog: [...target.completionLog, entry],
+      });
+    },
+    [plants, updatePlant],
+  );
+
+  // ── Render ───────────────────────────────────────────────────────────
+
   if (!online) return <NoNetwork />;
 
   return (
-    <section className="mx-auto max-w-screen-sm px-4 py-8">
-      <h2 className="text-2xl font-bold tracking-tight text-stone-900">Today</h2>
-      <p className="mt-2 text-sm text-stone-600">
-        Nothing to care for yet. Tap the camera button to identify a plant and
-        add it to your collection.
-      </p>
+    <section className="mx-auto max-w-screen-sm px-4 py-6">
+      {/* Header strip: title + MyPlantsPill, side-by-side on small screens. */}
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-2xl font-bold tracking-tight text-stone-900">Today</h2>
+        <MyPlantsPill count={plants.length} />
+      </div>
 
+      {/* Identify-flow panels — only render when not idle, so the home
+          sections don't compete with the capture UI. */}
       {stage === "organ" && shot ? (
         <div className="mt-6 space-y-4">
           <img
@@ -224,6 +276,33 @@ export default function Today() {
           >
             Try again
           </button>
+        </div>
+      ) : null}
+
+      {/* Home-screen sections — only when the identify flow is idle. */}
+      {stage === "idle" ? (
+        <div className="mt-6 space-y-6">
+          {/* 1. Dying banner — auto-shown when at least one plant matches isDying. */}
+          <DyingBanner dying={dying} onTap={openPlant} />
+
+          {/* 2. Empty state OR Today + Upcoming. */}
+          {plants.length === 0 ? (
+            <EmptyState />
+          ) : (
+            <>
+              <TodaySection
+                plants={plants}
+                now={now}
+                onMarkDone={markDone}
+                onOpenPlant={openPlant}
+              />
+              <UpcomingSection
+                plants={plants}
+                now={now}
+                onOpenPlant={openPlant}
+              />
+            </>
+          )}
         </div>
       ) : null}
 
