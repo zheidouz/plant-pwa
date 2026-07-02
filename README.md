@@ -79,6 +79,69 @@ The build is broken into 9 vertical slices — see [`docs/issues/`](./docs/issue
 
 Implement one slice per fresh `/implement` session, starting with whichever slice follows the one just merged (#3 Domain model).
 
+## Firebase setup (slice #4)
+
+Slice #4 wires the Firebase Functions v2 proxy (`identifyPlant`) plus
+Firebase Hosting. The Firebase project is `ai-ni-paul`; the project ID lives
+in `.firebaserc` so anyone in the repo can deploy without re-running
+`firebase use --add`.
+
+### One-time secret setup
+
+```bash
+# Pl@ntNet (registered, not anonymous — registered tier is more reliable):
+firebase functions:secrets:set PLANTNET_API_KEY
+
+# MiMo v2.5 (vision fallback for low-confidence Pl@ntNet results):
+firebase functions:secrets:set MIMO_API_KEY
+
+# Optional override (defaults to https://api.xiaomimimo.com/v1):
+firebase functions:secrets:set MIMO_BASE_URL   # if you need to point at a proxy
+```
+
+Secrets are managed by Secret Manager — they never appear in client code
+or `firebase.json`. Per [ADR 0001](./docs/adr/0001-plantnet-proxy.md), the
+proxy is the **single boundary** for both external calls.
+
+### Local dev with emulators
+
+```bash
+npm install                              # front-end deps (already in node_modules)
+cd functions && npm install && cd ..     # functions deps
+npm run build                            # front-end (dist/)
+npm --prefix functions run build         # functions (functions/lib/)
+firebase emulators:start                 # Functions + Hosting emulator
+```
+
+In a second shell:
+
+```bash
+VITE_FIREBASE_FUNCTIONS_URL=http://localhost:5001/ai-ni-paul/us-central1 npm run dev
+```
+
+### Production deploy
+
+Production deploy is owned by issue #10 — `firebase deploy --only functions,hosting`.
+
+## Identify flow (slice #4)
+
+1. Tap the camera FAB on the home screen → live preview via
+   `getUserMedia({ video: { facingMode: "environment" } })` with a
+   file-input fallback (`<input type="file" accept="image/*" capture="environment">`).
+2. The captured JPEG is resized to ≤1MB (canvas + binary search on
+   JPEG quality between 0.5 and 0.95; max 1280px on the long edge).
+3. Choose which organ you photographed (🍃 Leaf / 🌸 Flower / 🌰 Fruit /
+   🌳 Bark / 🌿 Whole). Smart default: `leaf` if `width > height`,
+   else `whole`. The Pl@ntNet API requires an organ.
+4. POST `{ imageBase64, organ }` to `identifyPlant`. The function calls
+   Pl@ntNet v2 first; if the top score is below 0.30 it falls back to
+   MiMo v2.5 vision.
+5. Result modal shows the top candidate + "⚠️ AI suggestion — please
+   confirm" label + confidence. "Add to My Plants" appends via the
+   domain layer and shows a 5-second Undo snackbar.
+6. Offline: the FAB path lands on the existing `NoNetwork` empty state.
+7. Pl@ntNet 429 / 5xx → friendly message; nothing is auto-added.
+
 ## Domain model
 
 Issue #3 (Domain model + localStorage + dying detection) ships a pure-TypeScript domain module under `src/domain/`. It is the data contract for every later slice — no React, no Firebase, no LLM SDK imports.
