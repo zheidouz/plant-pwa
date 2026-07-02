@@ -22,6 +22,27 @@
     ],
     "rewrites": [
       {
+        "source": "/api/identifyPlant",
+        "function": {
+          "functionId": "identifyPlant",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/api/generateSchedule",
+        "function": {
+          "functionId": "generateSchedule",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/api/sendDailyDigest",
+        "function": {
+          "functionId": "sendDailyDigest",
+          "region": "us-central1"
+        }
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }
