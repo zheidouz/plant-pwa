@@ -1,0 +1,86 @@
+/**
+ * Domain types for Plant Identifier PWA v1.
+ *
+ * These shapes are the contract between the AI layer (Pl@ntNet + MiMo) and
+ * every downstream slice — they come verbatim from the PRD (see
+ * `docs/prd/plant-identifier-pwa-v1.md` -> "Domain Model (informative shapes)"
+ * near line 114). DO NOT change field names or semantics without updating the
+ * PRD and writing a schema-migration step.
+ *
+ * Pure types only — no runtime code, no imports from React / Firebase / LLM SDKs.
+ */
+
+/** The three cadence-only care types supported in v1. */
+export type CareType = "water" | "fertilize" | "mist";
+
+/**
+ * One schedule rule per (enabled) care type per plant. A plant's `rules`
+ * contains at most one entry per `CareType`.
+ */
+export interface ScheduleRule {
+  careType: CareType;
+  /** e.g. 7 = every 7 days. */
+  cadenceDays: number;
+  enabled: boolean;
+}
+
+/**
+ * A single "Mark as done" record, appended to `Plant.completionLog` whenever
+ * the user completes a care action. Exported as a named type so callers can
+ * build / inspect completion entries without inlining the shape.
+ */
+export interface CompletionEntry {
+  careType: CareType;
+  /** ISO timestamp of when the action was completed. */
+  completedAt: string;
+}
+
+/** A plant in the user's collection. */
+export interface Plant {
+  /** UUID v4. */
+  id: string;
+  commonName: string;
+  scientificName?: string;
+  /** Small JPEG stored as data URL in localStorage. */
+  photoDataUrl: string;
+  identificationSource: "plantnet" | "mimo-vision" | "manual";
+  /** 0..1, only set when source === "plantnet". */
+  plantnetConfidence?: number;
+  /** BCP-47 locale captured at scan time. */
+  locale: string;
+  /** ISO timestamp. */
+  createdAt: string;
+  /** At most one rule per enabled CareType. */
+  rules: ScheduleRule[];
+  /** Append-only log of "Mark as done" actions. */
+  completionLog: CompletionEntry[];
+}
+
+/**
+ * Persisted shape stored under localStorage. Schema-versioned so we can write
+ * hard migrations when the on-disk format changes.
+ */
+export interface AppState {
+  schemaVersion: 1;
+  plants: Plant[];
+}
+
+/**
+ * The schema version this build of the app understands. Bump this constant
+ * (and add a migration branch in `storage.ts`) whenever `AppState`'s shape
+ * changes.
+ */
+export const CURRENT_SCHEMA_VERSION = 1 as const;
+
+/**
+ * The versioned localStorage key. The `:v1` suffix is a fallback in case we
+ * ever need a hard migration that throws away the old shape entirely.
+ */
+export const STORAGE_KEY = "plant-pwa:app-state:v1" as const;
+
+/** All `CareType` values, useful for iteration / completeness checks. */
+export const ALL_CARE_TYPES: readonly CareType[] = [
+  "water",
+  "fertilize",
+  "mist",
+] as const;
