@@ -26,10 +26,17 @@ export default function CaptureModal({ open, onClose, onCapture }: CaptureModalP
 
   // Boot the camera as soon as the modal opens. Stop tracks on close.
   useEffect(() => {
+    // Always reset transient state when open toggles. We deliberately do
+    // NOT call any cleanup that touches `stream` here, because on the very
+    // first render `stream` is still in its TDZ (declared below). The
+    // cleanup function returned at the end of this effect handles the
+    // "close while open" path, and on a fresh mount `stream` is always null.
     if (!open) {
-      stopStream();
       setStreamError(null);
       setBusy(false);
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
       return;
     }
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
@@ -62,7 +69,8 @@ export default function CaptureModal({ open, onClose, onCapture }: CaptureModalP
       }
     })();
 
-    function stopStream() {
+    return () => {
+      cancelled = true;
       if (stream) {
         stream.getTracks().forEach((t) => t.stop());
         stream = null;
@@ -70,11 +78,6 @@ export default function CaptureModal({ open, onClose, onCapture }: CaptureModalP
       if (videoRef.current) {
         videoRef.current.srcObject = null;
       }
-    }
-
-    return () => {
-      cancelled = true;
-      stopStream();
     };
   }, [open]);
 
